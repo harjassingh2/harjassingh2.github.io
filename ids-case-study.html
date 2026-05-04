@@ -1,0 +1,904 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Why Default IDS Fails Against Lateral Movement — Harjas Singh</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@400;500&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:      #0b0e0d;
+    --bg2:     #111512;
+    --bg3:     #161a18;
+    --green:   #2eff8f;
+    --green2:  #1adb75;
+    --dim:     #3a4a42;
+    --muted:   #8a9e94;
+    --body:    #c8d8d0;
+    --white:   #eef4f0;
+    --red:     #ff4d4d;
+    --amber:   #ffb347;
+    --mono:    'DM Mono', monospace;
+    --serif:   'DM Serif Display', serif;
+    --sans:    'DM Sans', sans-serif;
+  }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--body);
+    font-family: var(--sans);
+    font-weight: 300;
+    line-height: 1.7;
+    overflow-x: hidden;
+  }
+
+  /* ── NOISE OVERLAY ── */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+    opacity: 0.03;
+    pointer-events: none;
+    z-index: 1000;
+  }
+
+  /* ── NAV ── */
+  nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1.2rem 3rem;
+    border-bottom: 1px solid rgba(46,255,143,0.08);
+    background: rgba(11,14,13,0.85);
+    backdrop-filter: blur(12px);
+  }
+
+  .nav-name {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--green);
+    letter-spacing: 0.08em;
+    text-decoration: none;
+  }
+
+  .nav-links {
+    display: flex;
+    gap: 2rem;
+    list-style: none;
+  }
+
+  .nav-links a {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--muted);
+    text-decoration: none;
+    letter-spacing: 0.06em;
+    transition: color 0.2s;
+  }
+  .nav-links a:hover { color: var(--green); }
+
+  /* ── HERO ── */
+  .hero {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding: 0 3rem 5rem;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .hero-grid {
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(46,255,143,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(46,255,143,0.04) 1px, transparent 1px);
+    background-size: 60px 60px;
+    mask-image: radial-gradient(ellipse 80% 60% at 50% 40%, black 20%, transparent 80%);
+  }
+
+  .hero-tag {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--green);
+    letter-spacing: 0.15em;
+    margin-bottom: 1.5rem;
+    opacity: 0;
+    animation: fadeUp 0.6s 0.2s forwards;
+  }
+
+  .hero h1 {
+    font-family: var(--serif);
+    font-size: clamp(2.8rem, 6vw, 5.5rem);
+    color: var(--white);
+    line-height: 1.05;
+    max-width: 16ch;
+    margin-bottom: 2rem;
+    opacity: 0;
+    animation: fadeUp 0.7s 0.35s forwards;
+  }
+
+  .hero h1 em {
+    font-style: italic;
+    color: var(--green);
+  }
+
+  .hero-meta {
+    display: flex;
+    align-items: center;
+    gap: 2rem;
+    opacity: 0;
+    animation: fadeUp 0.6s 0.55s forwards;
+  }
+
+  .hero-author {
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+
+  .hero-author strong {
+    color: var(--body);
+    font-weight: 500;
+    display: block;
+  }
+
+  .hero-divider {
+    width: 1px;
+    height: 32px;
+    background: var(--dim);
+  }
+
+  .hero-stat {
+    text-align: center;
+  }
+
+  .hero-stat .num {
+    font-family: var(--mono);
+    font-size: 1.6rem;
+    color: var(--green);
+    line-height: 1;
+    display: block;
+  }
+
+  .hero-stat .label {
+    font-size: 0.72rem;
+    color: var(--muted);
+    letter-spacing: 0.05em;
+  }
+
+  .scroll-hint {
+    position: absolute;
+    bottom: 2rem;
+    right: 3rem;
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    color: var(--dim);
+    letter-spacing: 0.1em;
+    writing-mode: vertical-rl;
+    opacity: 0;
+    animation: fadeIn 1s 1.2s forwards;
+  }
+
+  /* ── SECTIONS ── */
+  section {
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 6rem 3rem;
+  }
+
+  .section-label {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--green);
+    letter-spacing: 0.18em;
+    margin-bottom: 1.2rem;
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+  }
+
+  .section-label::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--dim);
+    max-width: 60px;
+  }
+
+  h2 {
+    font-family: var(--serif);
+    font-size: clamp(1.8rem, 3.5vw, 2.6rem);
+    color: var(--white);
+    line-height: 1.15;
+    margin-bottom: 1.8rem;
+  }
+
+  h3 {
+    font-family: var(--sans);
+    font-size: 1rem;
+    font-weight: 500;
+    color: var(--white);
+    margin-bottom: 0.5rem;
+  }
+
+  p { margin-bottom: 1.2rem; font-size: 0.95rem; }
+  p:last-child { margin-bottom: 0; }
+
+  /* ── PROBLEM BLOCK ── */
+  .problem-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: var(--dim);
+    border: 1px solid var(--dim);
+    border-radius: 4px;
+    overflow: hidden;
+    margin: 2.5rem 0;
+  }
+
+  .problem-cell {
+    background: var(--bg2);
+    padding: 1.8rem;
+  }
+
+  .problem-cell .icon {
+    font-size: 1.2rem;
+    margin-bottom: 0.8rem;
+    display: block;
+  }
+
+  .problem-cell h4 {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+    margin-bottom: 0.5rem;
+  }
+
+  .problem-cell p {
+    font-size: 0.88rem;
+    color: var(--body);
+    margin: 0;
+    line-height: 1.6;
+  }
+
+  .problem-cell.highlight {
+    background: var(--bg3);
+    border-left: 2px solid var(--green);
+  }
+
+  /* ── TERMINAL ── */
+  .terminal {
+    background: #060908;
+    border: 1px solid var(--dim);
+    border-radius: 6px;
+    overflow: hidden;
+    margin: 2.5rem 0;
+    font-family: var(--mono);
+  }
+
+  .terminal-bar {
+    background: var(--bg3);
+    padding: 0.7rem 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    border-bottom: 1px solid var(--dim);
+  }
+
+  .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .dot-r { background: #ff5f57; }
+  .dot-y { background: #febc2e; }
+  .dot-g { background: #28c840; }
+
+  .terminal-title {
+    font-size: 0.68rem;
+    color: var(--muted);
+    margin-left: 0.5rem;
+    letter-spacing: 0.05em;
+  }
+
+  .terminal-body {
+    padding: 1.4rem 1.6rem;
+    font-size: 0.8rem;
+    line-height: 1.9;
+  }
+
+  .t-prompt { color: var(--green); }
+  .t-cmd    { color: var(--white); }
+  .t-out    { color: var(--muted); }
+  .t-alert  { color: var(--red); }
+  .t-ok     { color: var(--green); }
+  .t-warn   { color: var(--amber); }
+  .t-comment { color: #3a5445; }
+
+  /* ── SCENARIO TABLE ── */
+  .scenario-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 2rem 0;
+    font-size: 0.82rem;
+  }
+
+  .scenario-table th {
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    letter-spacing: 0.12em;
+    color: var(--muted);
+    text-align: left;
+    padding: 0.6rem 0.8rem;
+    border-bottom: 1px solid var(--dim);
+  }
+
+  .scenario-table td {
+    padding: 0.65rem 0.8rem;
+    border-bottom: 1px solid rgba(58,74,66,0.4);
+    color: var(--body);
+    vertical-align: middle;
+  }
+
+  .scenario-table tr:hover td {
+    background: rgba(46,255,143,0.02);
+  }
+
+  .pill {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    padding: 0.18rem 0.55rem;
+    border-radius: 2px;
+    letter-spacing: 0.05em;
+  }
+
+  .pill-none  { background: rgba(255,77,77,0.12);  color: var(--red);   border: 1px solid rgba(255,77,77,0.2); }
+  .pill-low   { background: rgba(255,179,71,0.1);  color: var(--amber); border: 1px solid rgba(255,179,71,0.2); }
+  .pill-med   { background: rgba(255,179,71,0.15); color: var(--amber); border: 1px solid rgba(255,179,71,0.25); }
+  .pill-high  { background: rgba(46,255,143,0.1);  color: var(--green); border: 1px solid rgba(46,255,143,0.2); }
+
+  /* ── KEY FINDING CARDS ── */
+  .findings {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1rem;
+    margin: 2rem 0;
+  }
+
+  .finding-card {
+    background: var(--bg2);
+    border: 1px solid var(--dim);
+    border-radius: 4px;
+    padding: 1.5rem;
+    display: flex;
+    gap: 1.2rem;
+    align-items: flex-start;
+    transition: border-color 0.2s;
+  }
+
+  .finding-card:hover { border-color: rgba(46,255,143,0.3); }
+
+  .finding-num {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--green);
+    min-width: 24px;
+    padding-top: 2px;
+  }
+
+  .finding-body h4 {
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--white);
+    margin-bottom: 0.3rem;
+  }
+
+  .finding-body p {
+    font-size: 0.84rem;
+    color: var(--muted);
+    margin: 0;
+    line-height: 1.6;
+  }
+
+  /* ── QUOTE ── */
+  .pullquote {
+    border-left: 3px solid var(--green);
+    padding: 1.2rem 1.8rem;
+    margin: 2.5rem 0;
+    background: rgba(46,255,143,0.03);
+  }
+
+  .pullquote p {
+    font-family: var(--serif);
+    font-size: 1.15rem;
+    font-style: italic;
+    color: var(--white);
+    line-height: 1.5;
+    margin: 0;
+  }
+
+  /* ── ABOUT ── */
+  .about-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+    margin-top: 2rem;
+  }
+
+  .about-item h4 {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--green);
+    letter-spacing: 0.1em;
+    margin-bottom: 0.5rem;
+  }
+
+  .about-item p {
+    font-size: 0.85rem;
+    color: var(--muted);
+    line-height: 1.65;
+    margin: 0;
+  }
+
+  /* ── CTA ── */
+  .cta-block {
+    text-align: center;
+    padding: 5rem 3rem;
+    border-top: 1px solid var(--dim);
+    max-width: 100%;
+  }
+
+  .cta-block h2 {
+    font-family: var(--serif);
+    font-size: clamp(1.6rem, 3vw, 2.4rem);
+    color: var(--white);
+    margin-bottom: 1rem;
+  }
+
+  .cta-block p {
+    color: var(--muted);
+    font-size: 0.9rem;
+    max-width: 42ch;
+    margin: 0 auto 2rem;
+  }
+
+  .cta-links {
+    display: flex;
+    justify-content: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.7rem 1.4rem;
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    letter-spacing: 0.05em;
+    border-radius: 3px;
+    text-decoration: none;
+    transition: all 0.2s;
+    cursor: pointer;
+  }
+
+  .btn-primary {
+    background: var(--green);
+    color: #060908;
+    border: 1px solid var(--green);
+  }
+  .btn-primary:hover { background: var(--green2); }
+
+  .btn-outline {
+    background: transparent;
+    color: var(--green);
+    border: 1px solid var(--dim);
+  }
+  .btn-outline:hover { border-color: var(--green); }
+
+  /* ── FOOTER ── */
+  footer {
+    text-align: center;
+    padding: 2rem;
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    color: var(--dim);
+    letter-spacing: 0.08em;
+    border-top: 1px solid rgba(58,74,66,0.3);
+  }
+
+  /* ── DIVIDER ── */
+  .full-rule {
+    width: 100%;
+    height: 1px;
+    background: var(--dim);
+    opacity: 0.4;
+  }
+
+  /* ── ANIMATIONS ── */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(18px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+
+  .reveal {
+    opacity: 0;
+    transform: translateY(20px);
+    transition: opacity 0.65s ease, transform 0.65s ease;
+  }
+  .reveal.visible {
+    opacity: 1;
+    transform: none;
+  }
+
+  /* ── RESPONSIVE ── */
+  @media (max-width: 640px) {
+    nav { padding: 1rem 1.5rem; }
+    .nav-links { display: none; }
+    .hero { padding: 0 1.5rem 4rem; }
+    section { padding: 4rem 1.5rem; }
+    .problem-grid { grid-template-columns: 1fr; }
+    .about-grid { grid-template-columns: 1fr; }
+    .cta-block { padding: 4rem 1.5rem; }
+    .hero-meta { flex-wrap: wrap; gap: 1rem; }
+  }
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a href="#" class="nav-name">HARJAS SINGH</a>
+  <ul class="nav-links">
+    <li><a href="#problem">The Problem</a></li>
+    <li><a href="#lab">The Lab</a></li>
+    <li><a href="#results">Results</a></li>
+    <li><a href="#findings">Findings</a></li>
+    <li><a href="#about">About</a></li>
+  </ul>
+</nav>
+
+<!-- HERO -->
+<div class="hero">
+  <div class="hero-grid"></div>
+  <div class="hero-tag">CASE STUDY · NETWORK DETECTION ENGINEERING</div>
+  <h1>Why Default IDS Fails Against <em>Lateral Movement</em></h1>
+  <div class="hero-meta">
+    <div class="hero-author">
+      <strong>Harjas Singh</strong>
+      BSc Ethical Hacking & Cyber Security
+    </div>
+    <div class="hero-divider"></div>
+    <div class="hero-stat">
+      <span class="num">14</span>
+      <span class="label">Attack Scenarios</span>
+    </div>
+    <div class="hero-divider"></div>
+    <div class="hero-stat">
+      <span class="num">13/14</span>
+      <span class="label">Improved with Custom Rules</span>
+    </div>
+    <div class="hero-divider"></div>
+    <div class="hero-stat">
+      <span class="num">0</span>
+      <span class="label">Default Alerts on SSH/LotL/SOCKS</span>
+    </div>
+  </div>
+  <div class="scroll-hint">SCROLL DOWN</div>
+</div>
+
+<!-- THE PROBLEM -->
+<section id="problem">
+  <div class="section-label">01 · THE PROBLEM</div>
+  <h2>Your IDS is watching the front door. Attackers use the back.</h2>
+
+  <p>Most organisations deploy Suricata or Snort with a default community ruleset and consider themselves covered. For perimeter threats — known exploits, malware hashes, blacklisted IPs — that's probably fine. But lateral movement is a completely different problem.</p>
+
+  <p>An attacker who has already compromised a host inside your network doesn't send exploit strings across the wire. They use SMB to access file shares — exactly like your IT team does. They use SSH for port forwarding — exactly like your developers do. They beacon out over HTTPS — exactly like every browser on your network does. <strong style="color:var(--white)">Default rules have no behavioural baseline. They stay silent.</strong></p>
+
+  <div class="problem-grid reveal">
+    <div class="problem-cell">
+      <span class="icon">🔍</span>
+      <h4>WHAT DEFAULT IDS LOOKS FOR</h4>
+      <p>Known exploit strings · Malware signatures · Blacklisted IP addresses · Obvious protocol violations</p>
+    </div>
+    <div class="problem-cell highlight">
+      <span class="icon">👻</span>
+      <h4>WHAT LATERAL MOVEMENT LOOKS LIKE</h4>
+      <p>Valid credentials · Legitimate protocols · Normal-looking traffic · No signature to match</p>
+    </div>
+    <div class="problem-cell">
+      <span class="icon">📊</span>
+      <h4>THE SCALE OF THE GAP</h4>
+      <p>In this project: 5 of the hardest scenarios produced zero default alerts from Suricata — including SSH pivoting, SOCKS tunnelling, admin share access, and Living-off-the-Land.</p>
+    </div>
+    <div class="problem-cell highlight">
+      <span class="icon">🎯</span>
+      <h4>WHAT ACTUALLY WORKS</h4>
+      <p>Behavioural baselines · Protocol metadata analysis · Multi-log correlation · Custom-engineered detection logic built around how attackers actually behave.</p>
+    </div>
+  </div>
+
+  <div class="pullquote reveal">
+    <p>"The most damaging post-compromise activity happens in east-west traffic — between internal hosts that already trust each other. Traditional perimeter monitoring offers almost no visibility into this."</p>
+  </div>
+</section>
+
+<div class="full-rule"></div>
+
+<!-- THE LAB -->
+<section id="lab">
+  <div class="section-label">02 · THE LAB</div>
+  <h2>A controlled enterprise network — built to test this exactly.</h2>
+
+  <p>Rather than testing against generic attack traffic, I designed the lab around the specific problem of internal post-compromise detection. Three VMs, dual network interfaces, and a PCAP-based replay workflow that made the results repeatable and directly comparable.</p>
+
+  <div class="terminal reveal">
+    <div class="terminal-bar">
+      <div class="dot dot-r"></div>
+      <div class="dot dot-y"></div>
+      <div class="dot dot-g"></div>
+      <span class="terminal-title">lab-topology.sh</span>
+    </div>
+    <div class="terminal-body">
+      <div><span class="t-comment"># Lab environment — 3 VMs, isolated monitored segment</span></div>
+      <br>
+      <div><span class="t-prompt">$</span> <span class="t-cmd">show hosts</span></div>
+      <div><span class="t-out">  kali-attacker     192.168.10.10   Metasploit · Suricata · Tcpdump</span></div>
+      <div><span class="t-out">  windows-victim    192.168.10.20   SMB shares · internal services · LLMNR enabled</span></div>
+      <div><span class="t-out">  ubuntu-zeek       192.168.10.30   Zeek monitoring · PCAP capture &amp; replay</span></div>
+      <br>
+      <div><span class="t-comment"># Dual interfaces — management traffic isolated from monitored segment</span></div>
+      <div><span class="t-comment"># All scenario traffic captured → replayed through both tools for fair comparison</span></div>
+      <br>
+      <div><span class="t-prompt">$</span> <span class="t-cmd">show workflow</span></div>
+      <div><span class="t-out">  1. generate baseline traffic (normal internal behaviour)</span></div>
+      <div><span class="t-out">  2. execute attack scenario from kali</span></div>
+      <div><span class="t-out">  3. save to PCAP</span></div>
+      <div><span class="t-out">  4. replay → zeek default → zeek custom → suricata default → suricata custom</span></div>
+      <div><span class="t-out">  5. record: what fired, what didn't, what falsely fired</span></div>
+    </div>
+  </div>
+
+  <p>The baseline-first approach was critical — you cannot tune detection rules meaningfully without knowing what normal traffic looks like on your network first. Every false positive analysis in this project is measured against that baseline.</p>
+</section>
+
+<div class="full-rule"></div>
+
+<!-- RESULTS -->
+<section id="results">
+  <div class="section-label">03 · THE RESULTS</div>
+  <h2>14 scenarios. Default rules failed the ones that matter most.</h2>
+
+  <p>The scenarios were chosen specifically because they're hard — legitimate protocols used maliciously, valid credentials, encrypted channels. This is the table that default IDS vendors don't show you.</p>
+
+  <table class="scenario-table reveal">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>SCENARIO</th>
+        <th>MITRE</th>
+        <th>SURICATA DEFAULT</th>
+        <th>COMBINED CUSTOM</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td style="font-family:var(--mono);color:var(--dim)">01</td>
+        <td>Internal Port Scan</td>
+        <td style="font-family:var(--mono);font-size:0.72rem;color:var(--muted)">T1595</td>
+        <td><span class="pill pill-med">MEDIUM</span></td>
+        <td><span class="pill pill-high">STRONG</span></td>
+      </tr>
+      <tr>
+        <td style="font-family:var(--mono);color:var(--dim)">02</td>
+        <td>ICMP Reconnaissance</td>
+        <td style="font-family:var(--mono);font-size:0.72rem;color:var(--muted)">T1018</td>
+        <td><span class="pill pill-low">LOW</span></td>
+        <td><span class="pill pill-med">PARTIAL</span></td>
+      </tr>
+      <tr>
+        <td style="font-family:var(--mono);color:var(--dim)">03</td>
+        <td>SMB Enumeration</td>
+        <td style="font-family:var(--mono);font-size:0.72rem;color:var(--muted)">T1021.002</td>
+        <td><span class="pill pill-none">NONE</span></td>
+        <td><span class="pill pill-high">STRONG</span></td>
+      </tr>
+      <tr>
+        <td style="font-family:var(--mono);color:var(--dim)">04</td>
+        <td>Service Access</td>
+        <td style="font-family:var(--mono);font-size:0.72rem;color:var(--muted)">T1021</td>
+        <td><span class="pill pill-low">LOW</span></td>
+        <td><span class="pill pill-high">STRONG</span></td>
+      </tr>
+      <tr>
+        <td style="font-family:var(--mono);color:var(--dim)">05</td>
+        <td>Admin Share Lateral Movement</td>
+        <td style="font-family:var(--mono);font-size:0.72rem;color:var(--muted)">T1021.002</td>
+        <td><span class="pill pill-none">NONE</span></td>
+        <td><span class="pill pill-high">STRONG</span></td>
+      </tr>
+      <tr>
+        <td style="font-family:var(--mono);color:var(--dim)">06</td>
+        <td>SSH Port-Forwarding</td>
+        <td style="font-family:var(--mono);font-size:0.72rem;color:var(--muted)">T1572</td>
+        <td><span class="pill pill-none">NONE</span></td>
+        <td><span class="pill pill-high">STRONG</span></td>
+      </tr>
+      <tr>
+        <td style="font-family:var(--mono);color:var(--dim)">07</td>
+        <td>SOCKS Proxy Tunnel</td>
+        <td style="font-family:var(--mono);font-size:0.72rem;color:var(--muted)">T1090</td>
+        <td><span class="pill pill-none">NONE</span></td>
+        <td><span class="pill pill-high">STRONG</span></td>
+      </tr>
+      <tr>
+        <td style="font-family:var(--mono);color:var(--dim)">08</td>
+        <td>HTTPS-Wrapped Pivoting</td>
+        <td style="font-family:var(--mono);font-size:0.72rem;color:var(--muted)">T1572</td>
+        <td><span class="pill pill-none">NONE</span></td>
+        <td><span class="pill pill-high">STRONG</span></td>
+      </tr>
+      <tr>
+        <td style="font-family:var(--mono);color:var(--dim)">09</td>
+        <td>DNS Tunnelling</td>
+        <td style="font-family:var(--mono);font-size:0.72rem;color:var(--muted)">T1071.004</td>
+        <td><span class="pill pill-med">MEDIUM</span></td>
+        <td><span class="pill pill-high">STRONG</span></td>
+      </tr>
+      <tr>
+        <td style="font-family:var(--mono);color:var(--dim)">10</td>
+        <td>Living-off-the-Land</td>
+        <td style="font-family:var(--mono);font-size:0.72rem;color:var(--muted)">T1059</td>
+        <td><span class="pill pill-none">NONE</span></td>
+        <td><span class="pill pill-high">STRONG</span></td>
+      </tr>
+      <tr>
+        <td style="font-family:var(--mono);color:var(--dim)">11</td>
+        <td>Encrypted C2</td>
+        <td style="font-family:var(--mono);font-size:0.72rem;color:var(--muted)">T1573</td>
+        <td><span class="pill pill-low">LOW</span></td>
+        <td><span class="pill pill-high">STRONG</span></td>
+      </tr>
+      <tr>
+        <td style="font-family:var(--mono);color:var(--dim)">12</td>
+        <td>Jittered C2 Beaconing</td>
+        <td style="font-family:var(--mono);font-size:0.72rem;color:var(--muted)">T1071</td>
+        <td><span class="pill pill-none">NONE</span></td>
+        <td><span class="pill pill-med">PARTIAL</span></td>
+      </tr>
+      <tr>
+        <td style="font-family:var(--mono);color:var(--dim)">13</td>
+        <td>Cloud API Emulation</td>
+        <td style="font-family:var(--mono);font-size:0.72rem;color:var(--muted)">T1102</td>
+        <td><span class="pill pill-high">HIGH</span></td>
+        <td><span class="pill pill-high">STRONG</span></td>
+      </tr>
+      <tr>
+        <td style="font-family:var(--mono);color:var(--dim)">14</td>
+        <td>LLMNR Poisoning</td>
+        <td style="font-family:var(--mono);font-size:0.72rem;color:var(--muted)">T1557.001</td>
+        <td><span class="pill pill-none">NONE</span></td>
+        <td><span class="pill pill-high">STRONG</span></td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<div class="full-rule"></div>
+
+<!-- KEY FINDINGS -->
+<section id="findings">
+  <div class="section-label">04 · KEY FINDINGS</div>
+  <h2>What this actually taught me about detection.</h2>
+
+  <div class="findings">
+    <div class="finding-card reveal">
+      <div class="finding-num">01</div>
+      <div class="finding-body">
+        <h4>Installing a tool is not the same as having detection</h4>
+        <p>Default Suricata produced zero alerts for SSH pivoting, SOCKS tunnelling, Admin Share access, and Living-off-the-Land. These aren't obscure techniques — they're in every real intrusion. Out-of-the-box is not enough.</p>
+      </div>
+    </div>
+    <div class="finding-card reveal">
+      <div class="finding-num">02</div>
+      <div class="finding-body">
+        <h4>Behaviour beats signatures for post-compromise traffic</h4>
+        <p>Zeek's behavioural telemetry — connection logs, NTLM session linking, TLS metadata, SMB mapping — consistently outperformed signature matching in scenarios where the traffic looked legitimate. Context is what makes the difference.</p>
+      </div>
+    </div>
+    <div class="finding-card reveal">
+      <div class="finding-num">03</div>
+      <div class="finding-body">
+        <h4>False positives are as important as detection rate</h4>
+        <p>LotL and Admin Share scenarios had the highest false positive risk — legitimate IT administration generates nearly identical traffic. A rule that fires on every sysadmin task gets disabled. Tuning against a real baseline is not optional.</p>
+      </div>
+    </div>
+    <div class="finding-card reveal">
+      <div class="finding-num">04</div>
+      <div class="finding-body">
+        <h4>Jittered C2 is the current ceiling — and that's worth knowing</h4>
+        <p>Randomised beacon timing defeated every threshold-based rule even after significant tuning. Zeek provided partial detection through persistent destination behaviour — but not full confidence. Knowing where your model fails is as valuable as knowing where it works.</p>
+      </div>
+    </div>
+    <div class="finding-card reveal">
+      <div class="finding-num">05</div>
+      <div class="finding-body">
+        <h4>The combined approach outperforms either tool alone</h4>
+        <p>Suricata flags the anomaly fast. Zeek provides the context — who, from where, what protocol sequence, what behaviour preceded it. Together they reduce the ambiguity that makes lateral movement so hard to triage in a real SOC.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="full-rule"></div>
+
+<!-- ABOUT -->
+<section id="about">
+  <div class="section-label">05 · ABOUT</div>
+  <h2>Why I built this.</h2>
+
+  <p>I was frustrated that most IDS research tests tools against perimeter-style attacks — obvious exploits, known malware — because that's where detection is easy. The hard problem is internal. An attacker who is already inside, using legitimate tools, blending into normal traffic. I wanted to understand that problem properly, not just read about it.</p>
+
+  <p>So I built the lab, ran the attacks, wrote the rules from scratch, and documented everything — including where the detection model fails. That last part is important to me. Understanding the ceiling of what you've built is how you make it better.</p>
+
+  <div class="about-grid reveal">
+    <div class="about-item">
+      <h4>EDUCATION</h4>
+      <p>BSc (Hons) Ethical Hacking & Cyber Security<br>Coventry University · 2:1 · 2023–2026</p>
+    </div>
+    <div class="about-item">
+      <h4>TOOLS USED</h4>
+      <p>Zeek · Suricata · Metasploit · Nmap · Responder · Wireshark · Tcpdump · ELK Stack · VMware</p>
+    </div>
+    <div class="about-item">
+      <h4>FULL PROJECT</h4>
+      <p>All detection rules, Zeek scripts, scenario documentation and false positive analysis on GitHub.</p>
+    </div>
+    <div class="about-item">
+      <h4>LOOKING FOR</h4>
+      <p>SOC analyst · Blue team · Detection engineering roles where I can keep building and keep learning.</p>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<div class="cta-block">
+  <h2>View the full project</h2>
+  <p>All rules, scripts, and scenario documentation are open on GitHub.</p>
+  <div class="cta-links">
+    <a href="https://github.com/harjassingh2/ids-lateral-movement-detection" target="_blank" class="btn btn-primary">→ GitHub Repo</a>
+    <a href="mailto:harjassingh159@gmail.com" class="btn btn-outline">Get in touch</a>
+  </div>
+</div>
+
+<footer>
+  HARJAS SINGH · DERBY, UK · BUILT TO DEMONSTRATE, NOT TO IMPRESS
+</footer>
+
+<script>
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach((e, i) => {
+      if (e.isIntersecting) {
+        setTimeout(() => e.target.classList.add('visible'), i * 80);
+      }
+    });
+  }, { threshold: 0.1 });
+
+  document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+</script>
+</body>
+</html>
